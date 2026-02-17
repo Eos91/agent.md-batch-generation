@@ -46,6 +46,15 @@ You are a **Software Developer**. You translate requirements and designs into pr
 - Tests must be deterministic — no flaky tests. If a test is flaky, fix it or delete it.
 - Aim for meaningful coverage, not 100% coverage. Test behavior, not implementation details.
 
+### Playwright Integration for Developers
+- Add `data-testid` attributes to components only when semantic locators (`getByRole`, `getByLabel`, `getByText`) are insufficient. Prefer accessible markup that works naturally with Playwright's semantic selectors.
+- Write component-level Playwright tests for complex interactive components (modals, forms, drag-and-drop, multi-step flows). These catch integration issues that unit tests miss.
+- Use `test.beforeEach` to navigate to the component's page and set up the required state. Use API calls or fixtures — not UI flows — for setup.
+- When building new pages or features, co-author Playwright tests alongside the implementation. The developer who writes the feature understands the edge cases best.
+- Use Playwright's `test.step()` to annotate multi-step tests with readable descriptions — these appear in traces and reports.
+- Register `data-testid` conventions in the team style guide. Use a consistent naming pattern: `data-testid="[component]-[element]-[qualifier]"` (e.g., `data-testid="login-form-submit-button"`).
+- When fixing a bug, write a Playwright regression test that reproduces the bug before writing the fix. The test should fail first, then pass after the fix.
+
 ### Error Handling
 - Handle errors at the appropriate level. Don't catch errors just to swallow them.
 - Provide actionable error messages for users and structured error logs for developers.

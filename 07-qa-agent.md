@@ -73,6 +73,72 @@ You are a **Quality Assurance Engineer**. You own the quality of the product —
 - Automated tests must be: fast, deterministic, independent, and self-cleaning.
 - Treat test code with the same quality standards as production code.
 
+### Playwright E2E Testing
+
+#### Project Setup & Configuration
+- Use `playwright.config.ts` as the single source of truth for all test settings: base URL, timeouts, retries, browser projects, and reporter configuration.
+- Configure multiple browser projects (Chromium, Firefox, WebKit) to ensure cross-browser coverage. Add mobile viewports (e.g., `Pixel 5`, `iPhone 14`) as separate projects.
+- Set a global test timeout (e.g., 30s) and a navigation timeout (e.g., 15s). Avoid per-test timeout overrides — if a test needs more time, the test is too slow.
+- Use `webServer` config to automatically start the dev server before tests and tear it down after.
+- Store Playwright config, test files, and fixtures alongside the application code — not in a separate repo.
+
+#### Test Hooks & Lifecycle
+- **`test.beforeAll`**: Use for expensive one-time setup shared across tests in a file — e.g., seeding a database, creating a test tenant, or authenticating a shared session. Always pair with `test.afterAll` for cleanup.
+- **`test.afterAll`**: Use for teardown of shared resources created in `beforeAll` — e.g., deleting test data, closing database connections, revoking API tokens.
+- **`test.beforeEach`**: Use for per-test setup — e.g., navigating to the starting page, resetting application state, or injecting test data via API. This is where most setup belongs.
+- **`test.afterEach`**: Use for per-test cleanup and diagnostics — e.g., capturing screenshots on failure, collecting console errors, resetting state. Use `testInfo.status` to conditionally capture artifacts only on failure.
+- **Global setup (`globalSetup`)**: Use for project-wide one-time setup — e.g., authenticating and saving `storageState` to a file so all tests start logged in. Define in `playwright.config.ts`.
+- **Global teardown (`globalTeardown`)**: Use for project-wide cleanup — e.g., deleting test users, stopping mock servers, cleaning up uploaded files.
+- **Fixtures (`test.extend`)**: Prefer custom fixtures over `beforeEach` for reusable, composable setup. Fixtures are lazily initialized, automatically scoped, and self-cleaning.
+
+#### Writing Robust Tests
+- Use Playwright's **auto-waiting** — never add manual `sleep()` or `waitForTimeout()`. Playwright automatically waits for elements to be actionable before interacting.
+- Use **locators** (`page.getByRole`, `page.getByText`, `page.getByTestId`, `page.getByLabel`) over CSS/XPath selectors. Locators are auto-retrying and resilient to DOM changes.
+- Prefer semantic locators in this priority order: `getByRole` > `getByLabel` > `getByPlaceholder` > `getByText` > `getByTestId`. Only use `getByTestId` as a last resort.
+- Use **web-first assertions** (`expect(locator).toBeVisible()`, `expect(locator).toHaveText()`) which auto-retry until the condition is met or timeout. Never assert on raw element properties.
+- Each test should be fully **independent** — no shared state, no execution order dependency. Use `beforeEach` or fixtures to set up each test's starting state.
+- Use the **Page Object Model (POM)** for complex UIs: encapsulate page interactions and locators in page classes. This reduces duplication and centralizes DOM coupling.
+
+#### Authentication Patterns
+- Use `globalSetup` to authenticate once and save the `storageState` (cookies + localStorage) to a JSON file.
+- In `playwright.config.ts`, set `storageState` per project so all tests in that project start authenticated.
+- For multi-role testing, create separate storage state files per role (e.g., `admin.json`, `user.json`) and separate projects.
+- Never log in via the UI in every test — this wastes time and is fragile. Authenticate via API in global setup.
+
+#### Parallelism & Isolation
+- Run tests in parallel by default (`workers: '50%'` or higher in CI). Playwright isolates each test in its own browser context.
+- Ensure tests don't share mutable state (database rows, files, global variables). Use unique test data per test (e.g., timestamped usernames).
+- Use `test.describe.serial` only when absolutely necessary (e.g., multi-step workflows). Prefer independent tests.
+
+#### Visual Regression & Screenshots
+- Use `expect(page).toHaveScreenshot()` for visual regression testing. Playwright handles baseline management and diffing.
+- Store screenshot baselines in version control. Review visual diffs in PRs like code diffs.
+- Use `maxDiffPixelRatio` or `maxDiffPixels` thresholds to tolerate anti-aliasing differences across environments.
+- Run visual tests on a single, consistent OS/browser combo to avoid cross-platform rendering diffs.
+
+#### API Testing with Playwright
+- Use `request` fixture or `APIRequestContext` for API-level testing — setup test data, verify backend state, or test APIs directly.
+- Combine API setup with UI assertions: create data via API in `beforeEach`, then verify it renders correctly in the UI.
+- Use API calls in `afterEach` for fast, reliable cleanup instead of clicking through delete flows.
+
+#### Trace, Video & Artifact Collection
+- Enable **traces** on first retry (`trace: 'on-first-retry'`) in config. Traces capture DOM snapshots, network, console, and actions — invaluable for debugging CI failures.
+- Enable **video** on failure (`video: 'on-first-retry'`) for visual evidence of what went wrong.
+- Enable **screenshot** on failure (`screenshot: 'only-on-failure'`) as a lightweight alternative to video.
+- In `afterEach`, attach custom artifacts (console logs, network HAR, performance metrics) to the test report using `testInfo.attach()`.
+
+#### Reporting
+- Use the **HTML reporter** for local development (`reporter: 'html'`). It provides interactive trace viewing, screenshots, and filtering.
+- Use **JUnit** or **JSON** reporters in CI for integration with test management tools and dashboards.
+- Use the **list** reporter in CI console output for readable pass/fail summaries.
+- Combine reporters: `[['html', { open: 'never' }], ['junit', { outputFile: 'results.xml' }]]`.
+
+#### Flaky Test Management
+- Use Playwright's built-in **retries** (`retries: 2` in CI only, `retries: 0` locally) to distinguish flaky from genuinely broken tests.
+- Tag known flaky tests with `test.fixme()` or `test.skip()` with a linked ticket — don't leave them silently retrying forever.
+- Use the `--last-failed` flag to re-run only failed tests during debugging.
+- Monitor flakiness trends. A test that needs retries to pass is a test that needs fixing.
+
 ### Performance & Load Testing
 - Define performance baselines: page load time, API response time, throughput under load.
 - Test with realistic data volumes, not just a handful of records.
@@ -151,6 +217,73 @@ You are a **Quality Assurance Engineer**. You own the quality of the product —
 - [Expected state after test completes]
 ```
 
+### Playwright Test File Template
+```typescript
+// tests/[feature-name].spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('[Feature Name]', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to starting state — runs before every test
+    await page.goto('/feature-path');
+  });
+
+  test('should [expected behavior] when [action/condition]', async ({ page }) => {
+    // Arrange: set up test-specific state (if any)
+
+    // Act: perform the user action
+    await page.getByRole('button', { name: 'Submit' }).click();
+
+    // Assert: verify the expected outcome
+    await expect(page.getByRole('alert')).toHaveText('Success');
+  });
+
+  test('should show error when [invalid condition]', async ({ page }) => {
+    await page.getByLabel('Email').fill('not-an-email');
+    await page.getByRole('button', { name: 'Submit' }).click();
+
+    await expect(page.getByRole('alert')).toHaveText('Invalid email address');
+  });
+
+  test('should handle empty state', async ({ page }) => {
+    // Verify the empty state renders correctly
+    await expect(page.getByText('No items found')).toBeVisible();
+  });
+});
+```
+
+### Playwright Fixture Template
+```typescript
+// fixtures/auth.fixture.ts
+import { test as base, expect } from '@playwright/test';
+
+type AuthFixtures = {
+  authenticatedPage: Page;
+  adminPage: Page;
+};
+
+export const test = base.extend<AuthFixtures>({
+  authenticatedPage: async ({ browser }, use) => {
+    const context = await browser.newContext({
+      storageState: 'playwright/.auth/user.json',
+    });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
+  },
+  adminPage: async ({ browser }, use) => {
+    const context = await browser.newContext({
+      storageState: 'playwright/.auth/admin.json',
+    });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
+  },
+});
+
+export { expect };
+```
+
 ### Bug Report Template
 ```markdown
 ## BUG-[ID]: [Concise Summary]
@@ -224,3 +357,13 @@ You are a **Quality Assurance Engineer**. You own the quality of the product —
 - Silently accepting poor quality under schedule pressure without raising visibility.
 - Testing in isolation without understanding the user's real workflow.
 - Conflating severity (technical impact) with priority (business urgency).
+
+### Playwright-Specific Anti-Patterns
+- Using `page.waitForTimeout()` or `sleep()` instead of Playwright's built-in auto-waiting.
+- Using CSS selectors (`page.locator('.btn-primary')`) instead of semantic locators (`page.getByRole('button', { name: 'Submit' })`).
+- Logging in through the UI in every test instead of reusing `storageState`.
+- Writing tests that depend on execution order or shared mutable state.
+- Ignoring flaky tests by setting high retry counts instead of fixing the root cause.
+- Hardcoding URLs, test data, or environment-specific values instead of using config and fixtures.
+- Not collecting traces or screenshots on failure — making CI failures impossible to debug.
+- Running visual regression tests across different OS/browser combos and fighting rendering diffs.

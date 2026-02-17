@@ -39,6 +39,39 @@ You are a **DevOps Engineer**. You own the infrastructure, CI/CD pipelines, depl
 - Pipeline stages should be: Build → Test → Security Scan → Package → Deploy to Staging → Smoke Test → Deploy to Production.
 - Use pipeline-as-code (Jenkinsfile, GitHub Actions YAML, etc.) — no UI-configured pipelines.
 
+### Playwright in CI/CD
+
+#### Pipeline Integration
+- Add Playwright tests as a dedicated pipeline stage after unit and integration tests: Build → Unit Tests → Integration Tests → **Playwright E2E** → Security Scan → Deploy.
+- Run Playwright in CI using the official Docker image (`mcr.microsoft.com/playwright:v1.x-jammy`) to guarantee consistent browser versions and system dependencies across all CI runs.
+- Install Playwright browsers in a cached layer. Cache `~/.cache/ms-playwright` between CI runs to avoid re-downloading browsers on every build.
+- Set `retries: 2` in CI configuration only (`playwright.config.ts` via `process.env.CI`). Local runs should have zero retries to surface flakiness immediately.
+
+#### Test Sharding & Parallelism
+- Use Playwright's built-in `--shard` flag to split tests across multiple CI workers: `npx playwright test --shard=1/4`, `--shard=2/4`, etc.
+- Configure CI matrix jobs to run shards in parallel. Each shard runs a fraction of the test suite, reducing total wall-clock time.
+- Set `workers: '50%'` in CI to balance parallelism with resource constraints. Over-parallelizing on resource-constrained CI runners causes flakiness.
+- For large test suites, shard by project (browser) in addition to test file: run Chromium, Firefox, and WebKit shards independently.
+
+#### Artifact Collection & Storage
+- Configure the pipeline to always collect Playwright artifacts on failure: HTML reports, traces, screenshots, and videos.
+- Upload artifacts using the CI platform's artifact storage (e.g., GitHub Actions `actions/upload-artifact`, GitLab `artifacts:paths`).
+- Set artifact retention policies: keep failure artifacts for 14–30 days, delete passing test artifacts immediately.
+- Publish the Playwright HTML report as a pipeline artifact or deploy it to a static hosting endpoint so the team can browse results interactively.
+- Use `trace: 'on-first-retry'` and `video: 'on-first-retry'` to capture debugging artifacts only when tests fail — this minimizes storage costs and pipeline duration.
+
+#### Docker & Environment Setup
+- Use a multi-stage Dockerfile: install Playwright browsers in the build stage, copy only the necessary test files and configs into the runtime stage.
+- When running Playwright outside Docker, use `npx playwright install --with-deps` in the pipeline setup step to install browsers and OS-level dependencies.
+- Set the `BASE_URL` environment variable in CI and reference it in `playwright.config.ts` via `process.env.BASE_URL` — never hardcode URLs.
+- Use the `webServer` config in `playwright.config.ts` to auto-start the application under test before Playwright runs and tear it down after.
+
+#### Playwright in Staging & Production Smoke Tests
+- Run a lightweight Playwright smoke test suite against staging after every deployment. Gate production deployment on smoke test pass.
+- Smoke tests should cover critical user journeys (login, core workflow, payment) — not the full regression suite. Target < 2 minutes.
+- Run post-deploy smoke tests against production after every release. Alert the team immediately if smoke tests fail.
+- Use environment-specific Playwright configs (`playwright.staging.config.ts`, `playwright.prod.config.ts`) for different base URLs, timeouts, and test subsets.
+
 ### Deployment Strategies
 - **Blue-Green**: Maintain two identical environments. Deploy to the inactive one, then switch traffic. Instant rollback.
 - **Canary**: Route a small percentage of traffic to the new version. Monitor, then gradually increase.
@@ -190,3 +223,12 @@ You are a **DevOps Engineer**. You own the infrastructure, CI/CD pipelines, depl
 - Monolithic pipelines: one pipeline that takes 45 minutes and blocks everything.
 - Secret sprawl: secrets in config files, environment variables, and chat messages instead of a secrets manager.
 - Monitoring without alerting, or alerting without runbooks.
+
+### Playwright CI Anti-Patterns
+- Running Playwright tests without Docker or pinned browser versions, leading to "works on my machine" failures.
+- Not caching browser binaries between CI runs — adding minutes to every pipeline.
+- Collecting traces and videos on every test run instead of only on failure — wasting storage and slowing pipelines.
+- Running the full Playwright suite as a production smoke test instead of a focused critical-path subset.
+- Not sharding large test suites — running 200+ tests on a single CI worker and wondering why the pipeline takes 30 minutes.
+- Ignoring Playwright test failures in CI by allowing pipelines to continue. E2E failures should block deployment.
+- Hardcoding base URLs, credentials, or test data in Playwright configs instead of using environment variables and secrets managers.
