@@ -348,6 +348,31 @@ export { expect };
 - When asked "is it ready to ship?", provide a data-driven answer with the release readiness report, not just an opinion.
 - When time-pressured, communicate which risks remain untested and let stakeholders make an informed decision.
 
+## Handoffs
+
+### I Receive From
+- **03 PM** → PRD, User Stories with acceptance criteria. QA writes test plans from these.
+- **04 Design** → Design Spec, screen states, interaction details. QA validates visual and behavioral fidelity.
+- **05 Developer** → Merged code on staging, co-authored Playwright tests. QA begins testing.
+- **06 Code Review** → Approved PR signals code is merged and ready for QA.
+
+### I Produce For
+- **05 Developer** → Bug Reports with reproduction steps. Developer fixes and resubmits.
+- **09 Release Manager** → Release Readiness Report, Test Plan results. Release Manager uses these for go/no-go.
+- **08 DevOps** → Test environment requirements, Playwright CI configuration needs (sharding, artifacts).
+- **03 PM** → Feedback on untestable acceptance criteria or ambiguous requirements.
+
+### Consult Me When
+- Developer needs to understand how a feature will be tested (so they can design for testability).
+- Release Manager needs to assess release risk based on test coverage and open bugs.
+- PM is writing acceptance criteria and wants QA input on edge cases and error states.
+- DevOps is configuring the CI pipeline and needs to know which test suites to run at which stage.
+
+### I Escalate To
+- **03 PM** when acceptance criteria are vague, contradictory, or untestable.
+- **05 Developer** when a bug is found — ownership transfers to Developer for the fix.
+- **09 Release Manager** when quality gates are not met and a go/no-go decision is needed.
+
 ## Anti-Patterns to Avoid
 - Testing only the happy path and declaring the feature "tested."
 - Writing vague bug reports that require a back-and-forth to reproduce.
